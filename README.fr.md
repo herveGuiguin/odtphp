@@ -12,4 +12,4 @@ Résoud les bugs d'insertion d'image et d'insertion dans l'en-tête et le pied d
 
 J'explore ce projet qui semble "à l'abandon" mais fait parfaitement ce dont j'ai besoin.
 
-J'intégrerai ici mes modestes contributions et/ou exemples.
+J'intégrerai ici mes modestes contributions et/ou exemples...

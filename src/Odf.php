@@ -2,52 +2,44 @@
 
 namespace Odtphp;
 
-use Odtphp\Segment;
 use Odtphp\Exceptions\OdfException;
-use Odtphp\Zip\PclZipProxy;
-use Odtphp\Zip\PhpZipProxy;
 
 /**
  * Templating class for odt file
  * You need PHP 5.2 at least
  * You need Zip Extension or PclZip library
  * Encoding : ISO-8859-1
- * Author: neveldo $
- * Modified by: Vikas Mahajan http://vikasmahajan.wordpress.com
- * Date - $Date: 2011-03-06 11:11:57
- * SVN Revision - $Rev: 42 $
- * Id : $Id: odf.php 42 2009-06-17 09:11:57Z neveldo $
+ * Author: neveldo
+ * Modified by: Loïc HENRY - https://loicyeu.fr
+ * Date: 2021-05-06 15:22:54
+ * SVN Revision: 43
+ * Id: odf.php 42 2009-06-17 09:11:57Z neveldo
  *
  * @copyright  GPL License 2008 - Julien Pauli - Cyril PIERRE de GEYER - Anaska (http://www.anaska.com)
  * @license    http://www.gnu.org/copyleft/gpl.html  GPL License
- * @version 1.3
+ * @version    1.8
  */
-class Odf
-{
-    protected $config = array(
-        'ZIP_PROXY' => 'Odtphp\\Zip\\PclZipProxy',
-        'DELIMITER_LEFT' => '{',
-        'DELIMITER_RIGHT' => '}'
-    );
-    protected $file;
-    protected $contentXml;      // To store content of content.xml file
-    protected $manifestXml;     // To store content of manifest.xml file
-    protected $stylesXml;       // To store content of styles.xml file
-    protected $tmpfile;
-    protected $images = array();
-    protected $vars = array();
-    protected $manif_vars = array(); // array to store image names
-    protected $segments = array();
+class Odf {
     const PIXEL_TO_CM = 0.026458333;
+    protected $config     = array('ZIP_PROXY' => 'Odtphp\\Zip\\PclZipProxy', 'DELIMITER_LEFT' => '{', 'DELIMITER_RIGHT' => '}');
+    protected $file;              // To store content of content.xml file
+    protected $contentXml;        // To store content of manifest.xml file
+    protected $manifestXml;       // To store content of styles.xml file
+    protected $stylesXml;
+    protected $tmpfile;
+    protected $images     = array();
+    protected $vars       = array(); // array to store image names
+    protected $manif_vars = array();
+    protected $segments   = array();
 
     /**
      * Class constructor
      *
      * @param string $filename the name of the odt file
+     *
      * @throws OdfException
      */
-    public function __construct($filename, $config = array())
-    {
+    public function __construct($filename, $config = array()) {
         if (!is_array($config)) {
             throw new OdfException('Configuration data must be provided as array');
         }
@@ -85,51 +77,53 @@ class Odf
     }
 
     /**
+     * Move segment tags for lines of tables
+     * Called automatically within the constructor
+     *
+     * @return void
+     */
+    private function _moveRowSegments() {
+        // Search all possible rows in the document
+        $reg1 = "#<table:table-row[^>]*>(.*)</table:table-row>#smU";
+        preg_match_all($reg1, $this->contentXml, $matches);
+        for ($i = 0, $size = count($matches[0]); $i < $size; $i++) {
+            // Check if the current row contains a segment row.*
+            $reg2 = '#\[!--\sBEGIN\s(row.[\S]*)\s--](.*)\[!--\sEND\s\\1\s--]#smU';
+            if (preg_match($reg2, $matches[0][$i], $matches2)) {
+                $balise = str_replace('row.', '', $matches2[1]);
+                // Move segment tags around the row
+                $replace = array('[!-- BEGIN ' . $matches2[1] . ' --]' => '', '[!-- END ' . $matches2[1] . ' --]' => '', '<table:table-row' => '[!-- BEGIN ' . $balise . ' --]<table:table-row', '</table:table-row>' => '</table:table-row>[!-- END ' . $balise . ' --]');
+                $replacedXML = str_replace(array_keys($replace), array_values($replace), $matches[0][$i]);
+                $this->contentXml = str_replace($matches[0][$i], $replacedXML, $this->contentXml);
+            }
+        }
+    }
+
+    /**
      * Delete the temporary file when the object is destroyed
      */
-    public function __destruct()
-    {
+    public function __destruct() {
         if (file_exists($this->tmpfile)) {
             unlink($this->tmpfile);
         }
     }
 
     /**
-     * Assing a template variable
-     *
-     * @param string $key name of the variable within the template
-     * @param string $value replacement value
-     * @param bool $encode if true, special XML characters are encoded
-     * @throws OdfException
-     * @return odf
-     */
-    public function setVars($key, $value, $encode = true, $charset = 'ISO-8859')
-    {
-        $tag = $this->config['DELIMITER_LEFT'] . $key . $this->config['DELIMITER_RIGHT'];
-        if (strpos($this->contentXml, $tag) === false && strpos($this->stylesXml, $tag) === false) {
-            throw new OdfException("var $key not found in the document");
-        }
-        $value = $encode ? $this->recursiveHtmlspecialchars($value) : $value;
-        $value = ($charset == 'ISO-8859') ? utf8_encode($value) : $value;
-        $this->vars[$tag] = str_replace("\n", "<text:line-break/>", $value);
-        return $this;
-    }
-
-    /**
      * Assign a template variable as a picture
      *
-     * @param string $key name of the variable within the template
-     * @param string $value path to the picture
-     * @param integer $page anchor to page number (or -1 if anchor-type is as-char)
-     * @param integer $width width of picture (keep original if null)
-     * @param integer $height height of picture (keep original if null)
+     * @param string  $key     name of the variable within the template
+     * @param string  $value   path to the picture
+     * @param integer $page    anchor to page number (or -1 if anchor-type is as-char)
+     * @param integer $width   width of picture (keep original if null)
+     * @param integer $height  height of picture (keep original if null)
      * @param integer $offsetX offset by horizontal (not used if $page = -1)
      * @param integer $offsetY offset by vertical (not used if $page = -1)
-     * @throws OdfException
+     *
      * @return odf
+     * @throws OdfException
      */
-    public function setImage($key, $value, $page = -1, $width = null, $height = null, $offsetX = null, $offsetY = null)
-    {
+    public function setImage($key, $value, $page = -1, $width = null, $height = null, $offsetX = null,
+                             $offsetY = null) {
         $filename = strtok(strrchr($value, '/'), '/.');
         $file = substr(strrchr($value, '/'), 1);
         $size = @getimagesize($value);
@@ -141,9 +135,9 @@ class Odf
             $width *= Odf::PIXEL_TO_CM;
             $height *= Odf::PIXEL_TO_CM;
         }
-        $anchor = $page == -1 ? 'text:anchor-type="as-char"' : "text:anchor-type=\"page\" text:anchor-page-number=\"{$page}\" svg:x=\"{$offsetX}cm\" svg:y=\"{$offsetY}cm\"";
+        $anchor = $page == -1 ? 'text:anchor-type="as-char"' : "text:anchor-type=\"page\" text:anchor-page-number=\"$page\" svg:x=\"{$offsetX}cm\" svg:y=\"{$offsetY}cm\"";
         $xml = <<<IMG
-<draw:frame draw:style-name="fr1" draw:name="$filename" {$anchor} svg:width="{$width}cm" svg:height="{$height}cm" draw:z-index="3"><draw:image xlink:href="Pictures/$file" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/></draw:frame>
+<draw:frame draw:style-name="fr1" draw:name="$filename" $anchor svg:width="{$width}cm" svg:height="{$height}cm" draw:z-index="3"><draw:image xlink:href="Pictures/$file" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/></draw:frame>
 IMG;
 
         $this->images[$value] = $file;
@@ -153,61 +147,65 @@ IMG;
     }
 
     /**
-     * Move segment tags for lines of tables
-     * Called automatically within the constructor
+     * Assing a template variable
      *
-     * @return void
+     * @param string $key    name of the variable within the template
+     * @param string $value  replacement value
+     * @param bool   $encode if true, special XML characters are encoded
+     *
+     * @return odf
+     * @throws OdfException
      */
-    private function _moveRowSegments()
-    {
-        // Search all possible rows in the document
-        $reg1 = "#<table:table-row[^>]*>(.*)</table:table-row>#smU";
-        preg_match_all($reg1, $this->contentXml, $matches);
-        for ($i = 0, $size = count($matches[0]); $i < $size; $i++) {
-            // Check if the current row contains a segment row.*
-            $reg2 = '#\[!--\sBEGIN\s(row.[\S]*)\s--\](.*)\[!--\sEND\s\\1\s--\]#smU';
-            if (preg_match($reg2, $matches[0][$i], $matches2)) {
-                $balise = str_replace('row.', '', $matches2[1]);
-                // Move segment tags around the row
-                $replace = array(
-                    '[!-- BEGIN ' . $matches2[1] . ' --]' => '',
-                    '[!-- END ' . $matches2[1] . ' --]' => '',
-                    '<table:table-row' => '[!-- BEGIN ' . $balise . ' --]<table:table-row',
-                    '</table:table-row>' => '</table:table-row>[!-- END ' . $balise . ' --]'
-                );
-                $replacedXML = str_replace(array_keys($replace), array_values($replace), $matches[0][$i]);
-                $this->contentXml = str_replace($matches[0][$i], $replacedXML, $this->contentXml);
-            }
+    public function setVars($key, $value, $encode = true, $charset = 'ISO-8859') {
+        $tag = $this->config['DELIMITER_LEFT'] . $key . $this->config['DELIMITER_RIGHT'];
+        if (strpos($this->contentXml, $tag) === false && strpos($this->stylesXml, $tag) === false) {
+            throw new OdfException("var $key not found in the document");
+        }
+        $value = $encode ? $this->recursiveHtmlspecialchars($value) : $value;
+        $value = ($charset == 'ISO-8859') ? utf8_encode($value) : $value;
+        $this->vars[$tag] = str_replace("\n", "<text:line-break/>", $value);
+        return $this;
+    }
+
+    /**
+     * Recursive htmlspecialchars
+     */
+    protected function recursiveHtmlspecialchars($value) {
+        if (is_array($value)) {
+            return array_map(array($this, 'recursiveHtmlspecialchars'), $value);
+        }
+        else {
+            return htmlspecialchars($value);
         }
     }
 
     /**
-     * Merge template variables
-     * Called automatically for a save
+     * Check if the variable exists in the document.
      *
-     * @return void
+     * @param string $key Name of the variable.
+     *
+     * @return bool True if the document contains the variable, False otherwise.
      */
-    private function _parse()
-    {
-        $this->contentXml = str_replace(array_keys($this->vars), array_values($this->vars), $this->contentXml);
-        $this->stylesXml = str_replace(array_keys($this->vars), array_values($this->vars), $this->stylesXml);
+    public function isVarExists($key) {
+        $tag = $this->config['DELIMITER_LEFT'] . $key . $this->config['DELIMITER_RIGHT'];
+        return strpos($this->contentXml, $tag) === true || strpos($this->stylesXml, $tag) === true;
     }
 
     /**
      * Add the merged segment to the document
      *
      * @param Segment $segment
-     * @throws OdfException
+     *
      * @return odf
+     * @throws OdfException
      */
-    public function mergeSegment(Segment $segment)
-    {
+    public function mergeSegment(Segment $segment) {
         if (!array_key_exists($segment->getName(), $this->segments)) {
             throw new OdfException($segment->getName() . 'cannot be parsed, has it been set yet ?');
         }
         $string = $segment->getName();
         // $reg = '@<text:p[^>]*>\[!--\sBEGIN\s' . $string . '\s--\](.*)\[!--.+END\s' . $string . '\s--\]<\/text:p>@smU';
-        $reg = '@\[!--\sBEGIN\s' . $string . '\s--\](.*)\[!--.+END\s' . $string . '\s--\]@smU';
+        $reg = '@\[!--\sBEGIN\s' . $string . '\s--](.*)\[!--.+END\s' . $string . '\s--]@smU';
         $this->contentXml = preg_replace($reg, $segment->getXmlParsed(), $this->contentXml);
         foreach ($segment->manif_vars as $val) {
             $this->manif_vars[] = $val;   //copy all segment image names into current array
@@ -220,8 +218,7 @@ IMG;
      *
      * @return string
      */
-    public function printVars()
-    {
+    public function printVars() {
         return print_r('<pre>' . print_r($this->vars, true) . '</pre>', true);
     }
 
@@ -231,8 +228,7 @@ IMG;
      *
      * @return string
      */
-    public function __toString()
-    {
+    public function __toString() {
         return $this->contentXml;
     }
 
@@ -241,25 +237,36 @@ IMG;
      *
      * @return string
      */
-    public function printDeclaredSegments()
-    {
+    public function printDeclaredSegments() {
         return '<pre>' . print_r(implode(' ', array_keys($this->segments)), true) . '</pre>';
+    }
+
+    /**
+     * Check if the specified segment exists in the document.
+     *
+     * @param $segment
+     *
+     * @return bool
+     */
+    public function isSegmentExists($segment) {
+        $reg = "#\[!--\sBEGIN\s$segment\s--](.*?)\[!--\sEND\s$segment\s--]#smU";
+        return preg_match($reg, html_entity_decode($this->contentXml), $m) != 0;
     }
 
     /**
      * Declare a segment in order to use it in a loop
      *
      * @param string $segment
-     * @throws OdfException
+     *
      * @return Segment
+     * @throws OdfException
      */
-    public function setSegment($segment)
-    {
+    public function setSegment($segment) {
         if (array_key_exists($segment, $this->segments)) {
             return $this->segments[$segment];
         }
         // $reg = "#\[!--\sBEGIN\s$segment\s--\]<\/text:p>(.*?)<text:p\s.*>\[!--\sEND\s$segment\s--\]#sm";
-        $reg = "#\[!--\sBEGIN\s$segment\s--\](.*?)\[!--\sEND\s$segment\s--\]#smU";
+        $reg = "#\[!--\sBEGIN\s$segment\s--](.*?)\[!--\sEND\s$segment\s--]#smU";
         if (preg_match($reg, html_entity_decode($this->contentXml), $m) == 0) {
             throw new OdfException("'$segment' segment not found in the document");
         }
@@ -271,18 +278,19 @@ IMG;
      * Save the odt file on the disk
      *
      * @param string $file name of the desired file
-     * @throws OdfException
+     *
      * @return void
+     * @throws OdfException
      */
-    public function saveToDisk($file = null)
-    {
+    public function saveToDisk($file = null) {
         if ($file !== null && is_string($file)) {
             if (file_exists($file) && !(is_file($file) && is_writable($file))) {
                 throw new OdfException('Permission denied : can\'t create ' . $file);
             }
             $this->_save();
             copy($this->tmpfile, $file);
-        } else {
+        }
+        else {
             $this->_save();
         }
     }
@@ -290,14 +298,14 @@ IMG;
     /**
      * Internal save
      *
-     * @throws OdfException
      * @return void
+     * @throws OdfException
      */
-    private function _save()
-    {
+    private function _save() {
         $this->file->open($this->tmpfile);
         $this->_parse();
-        if (!$this->file->addFromString('content.xml', $this->contentXml) || !$this->file->addFromString('styles.xml', $this->stylesXml)) {
+        if (!$this->file->addFromString('content.xml', $this->contentXml) || !$this->file->addFromString('styles.xml',
+                                                                                                         $this->stylesXml)) {
             throw new OdfException('Error during file export addFromString');
         }
         $lastpos = strrpos($this->manifestXml, "\n", -15); //find second last newline in the manifest.xml file
@@ -322,14 +330,25 @@ IMG;
     }
 
     /**
+     * Merge template variables
+     * Called automatically for a save
+     *
+     * @return void
+     */
+    private function _parse() {
+        $this->contentXml = str_replace(array_keys($this->vars), array_values($this->vars), $this->contentXml);
+        $this->stylesXml = str_replace(array_keys($this->vars), array_values($this->vars), $this->stylesXml);
+    }
+
+    /**
      * Export the file as attached file by HTTP
      *
      * @param string $name (optionnal)
-     * @throws OdfException
+     *
      * @return void
+     * @throws OdfException
      */
-    public function exportAsAttachedFile($name = "")
-    {
+    public function exportAsAttachedFile($name = "") {
         $this->_save();
         if (headers_sent($filename, $linenum)) {
             throw new OdfException("headers already sent ($filename at $linenum)");
@@ -349,8 +368,7 @@ IMG;
      *
      * @return string The requested variable of configuration
      */
-    public function getConfig($configKey)
-    {
+    public function getConfig($configKey) {
         if (array_key_exists($configKey, $this->config)) {
             return $this->config[$configKey];
         }
@@ -362,21 +380,7 @@ IMG;
      *
      * @return string le chemin vers le fichier temporaire de travail
      */
-    public function getTmpfile()
-    {
+    public function getTmpfile() {
         return $this->tmpfile;
-    }
-
-
-    /**
-     * Recursive htmlspecialchars
-     */
-    protected function recursiveHtmlspecialchars($value)
-    {
-        if (is_array($value)) {
-            return array_map(array($this, 'recursiveHtmlspecialchars'), $value);
-        } else {
-            return htmlspecialchars($value);
-        }
     }
 }

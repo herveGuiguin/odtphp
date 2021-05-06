@@ -2,6 +2,7 @@
 
 namespace Odtphp\Exceptions;
 
-class SegmentException extends \Exception
-{
+use Exception;
+
+class SegmentException extends Exception {
 }

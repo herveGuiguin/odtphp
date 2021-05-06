@@ -180,6 +180,18 @@ IMG;
     }
 
     /**
+     * Check if the variable exists in the document.
+     *
+     * @param string $key Name of the variable.
+     *
+     * @return bool True if the document contains the variable, False otherwise.
+     */
+    public function isVarExists($key) {
+        $tag = $this->config['DELIMITER_LEFT'] . $key . $this->config['DELIMITER_RIGHT'];
+        return strpos($this->contentXml, $tag) === true || strpos($this->stylesXml, $tag) === true;
+    }
+
+    /**
      * Add the merged segment to the document
      *
      * @param Segment $segment
@@ -227,6 +239,18 @@ IMG;
      */
     public function printDeclaredSegments() {
         return '<pre>' . print_r(implode(' ', array_keys($this->segments)), true) . '</pre>';
+    }
+
+    /**
+     * Check if the specified segment exists in the document.
+     *
+     * @param $segment
+     *
+     * @return bool
+     */
+    public function isSegmentExists($segment) {
+        $reg = "#\[!--\sBEGIN\s$segment\s--](.*?)\[!--\sEND\s$segment\s--]#smU";
+        return preg_match($reg, html_entity_decode($this->contentXml), $m) != 0;
     }
 
     /**

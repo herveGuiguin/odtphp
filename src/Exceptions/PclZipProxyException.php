@@ -2,6 +2,7 @@
 
 namespace Odtphp\Exceptions;
 
-class PclZipProxyException extends \Exception
-{
+use Exception;
+
+class PclZipProxyException extends Exception {
 }

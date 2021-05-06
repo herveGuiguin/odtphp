@@ -2,6 +2,7 @@
 
 namespace Odtphp\Exceptions;
 
-class OdfException extends \Exception
-{
+use Exception;
+
+class OdfException extends Exception {
 }

@@ -1,5 +1,5 @@
 {
-    "name": "berduj/odtphp",
+    "name": "hguiguin/odtphp",
     "description": "ODT document generator",
     "keywords": [
         "odt",
@@ -7,7 +7,7 @@
     ],
 	"license": "GPL-3.0",
     "type": "library",
-    "homepage": "https://github.com/berduj/odtphp",
+    "homepage": "https://github.com/herveGuiguin/odtphp",
     "require": {
         "php": ">=5.2.4"
     },

@@ -11,13 +11,13 @@ use Odtphp\Exceptions\OdfException;
  * Encoding : ISO-8859-1
  * Author: neveldo
  * Modified by: Loïc HENRY - https://loicyeu.fr
- * Date: 2021-05-06 15:22:54
- * SVN Revision: 43
- * Id: odf.php 42 2009-06-17 09:11:57Z neveldo
+ * Date: 2021-05-07 09:58:34
+ * SVN Revision: 44
+ * Id: odf.php 44 2009-06-17 09:11:57Z neveldo
  *
  * @copyright  GPL License 2008 - Julien Pauli - Cyril PIERRE de GEYER - Anaska (http://www.anaska.com)
  * @license    http://www.gnu.org/copyleft/gpl.html  GPL License
- * @version    1.8
+ * @version    1.8.1
  */
 class Odf {
     const PIXEL_TO_CM = 0.026458333;
@@ -188,7 +188,7 @@ IMG;
      */
     public function isVarExists($key) {
         $tag = $this->config['DELIMITER_LEFT'] . $key . $this->config['DELIMITER_RIGHT'];
-        return strpos($this->contentXml, $tag) === true || strpos($this->stylesXml, $tag) === true;
+        return strpos($this->contentXml, $tag) !== false || strpos($this->stylesXml, $tag) !== false;
     }
 
     /**
